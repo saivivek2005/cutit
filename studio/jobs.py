@@ -297,7 +297,8 @@ def create(source: dict, options: dict, enqueue=True, creator=None, kind="video"
     job = {"id": jid, "user": ctx.uid(), "kind": kind, "creator": creator, "dir": str(d), "created": time.time(), "source": source,
            "options": opts, "status": "queued", "stage": "Waiting", "progress": 0.0,
            "title": source.get("name", ""), "uploader": "", "duration": 0, "clips": [], "error": None, "ai": {}}
-    d.mkdir(parents=True)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "clips").mkdir(parents=True, exist_ok=True)
     with _lock:
         _jobs[jid] = job
         _by_user.setdefault(job["user"], {})[jid] = job

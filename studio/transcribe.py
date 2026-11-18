@@ -276,6 +276,8 @@ def _decode_remote(pieces: list) -> list:
 def transcribe(audio: np.ndarray, on_progress=None) -> list:
     """Returns [{'w': word, 's': start_sec, 'e': end_sec}, ...] for the whole audio.
     Speech is cut at quiet moments into 12-24 s pieces; silent pieces are skipped."""
+    if audio is None or len(audio) == 0:
+        return []
     global _remote_down_until
     words = []
     todo = []

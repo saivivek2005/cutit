@@ -26,3 +26,12 @@ services:
         value: gemini-2.5-flash
       - key: PEAKCUT_AI_KEY
         sync: false
+      # Optional: In case YouTube challenges datacenter IPs, paste exported YouTube cookies here (Netscape format)
+      - key: PEAKCUT_YT_COOKIES
+        sync: false
+      # Optional: In case you use a residential or HTTP proxy for YouTube requests
+      - key: PEAKCUT_YT_PROXY
+        sync: false
+      # Cooldown pause in seconds if YouTube challenges the IP (defaults to 120, set to 0 to disable cooldown)
+      - key: PEAKCUT_YT_PAUSE
+        value: "120"

@@ -263,7 +263,8 @@ class Session:
                 self.seg_clock = max(self.seg_clock, self.samples / SR)
             p = f"p{self.part:02d}"
             cmd = ["ffmpeg", "-v", "error", "-reconnect", "1", "-reconnect_streamed", "1",
-                   "-reconnect_delay_max", "10"]
+                   "-reconnect_delay_max", "10", "-reconnect_on_network_error", "1",
+                   "-reconnect_on_http_error", "4xx,5xx"]
             for u in info["urls"]:
                 cmd += ["-i", u]
             a_in = "1:a:0" if len(info["urls"]) > 1 else "0:a:0"
@@ -595,6 +596,7 @@ class Session:
         if "width" not in self.job:
             meta = media.probe(segs[0][0])
             self.job.update(width=meta["width"], height=meta["height"])
+        (self.dir / "clips").mkdir(parents=True, exist_ok=True)
         lst = self.dir / "clips" / f"{clip['id']}.txt"
         lst.write_text("".join(f"file '{s[0].as_posix()}'\n" for s in segs), encoding="utf-8")
         src = self.dir / "clips" / f"{clip['id']}.src.ts"

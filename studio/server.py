@@ -756,7 +756,7 @@ def create_from_file(file: UploadFile = File(...), options: str = Form("{}"), cr
     except ValueError:
         opts = {}
     updir = config.TMP_DIR / "uploads"
-    updir.mkdir(exist_ok=True)
+    updir.mkdir(parents=True, exist_ok=True)
     tmp = updir / f"{os.urandom(8).hex()}{ext}"
     limit, size = config.MAX_UPLOAD_MB * 1024 * 1024, 0
     try:
@@ -856,7 +856,7 @@ def upload_start(body: dict = Body(...)):
     part = config.UPLOAD_PART_MB * 1024 * 1024
     upid = os.urandom(12).hex()
     d = _up_root() / f"up-{upid}"
-    d.mkdir()
+    d.mkdir(parents=True, exist_ok=True)
     meta = {"user": ctx.uid(), "name": name, "ext": ext, "size": size, "part": part, "parts": -(-size // part),
             "options": opts, "creator": creator, "t": time.time()}
     (d / "meta.json").write_text(json.dumps(meta), encoding="utf-8")

@@ -288,8 +288,11 @@ def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, sr
 
 def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layout, fg_h, ass: str, face=None) -> dict:
     global _qsv_ok
+    out_dir.mkdir(parents=True, exist_ok=True)
     (work / f"{name}.ass").write_text(ass, encoding="utf-8")
-    (work / "f").mkdir()
+    (work / "f").mkdir(parents=True, exist_ok=True)
+    if not any(config.FONTS_DIR.glob("*.ttf")):
+        install_fonts()
     for f in config.FONTS_DIR.glob("*.ttf"):
         shutil.copyfile(f, work / "f" / f.name)
     fc = _filter(layout, fg_h, face) + f"[v0]ass={name}.ass:fontsdir=f[v]"

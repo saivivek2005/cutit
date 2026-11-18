@@ -41,6 +41,8 @@ def youtube_paused() -> bool:
 def check_youtube(url: str):
     """Raise YouTubeBlocked straight away if YouTube is refusing this server right now."""
     if is_youtube(url) and youtube_paused():
+        if config.env("PEAKCUT_YT_PROXY") or _get_cookiefile():
+            return
         raise YouTubeBlocked(YT_BLOCKED)
 
 
@@ -48,7 +50,8 @@ def note_refusal(url: str, err) -> bool:
     """If this error is YouTube refusing the server, pause YouTube links for a while. True if it was."""
     global _yt_refused_until
     if is_youtube(url) and _BOT_CHECK.search(str(err)):
-        _yt_refused_until = time.time() + YT_PAUSE
+        pause = int(config.env("PEAKCUT_YT_PAUSE") or "120")
+        _yt_refused_until = time.time() + pause
         return True
     return False
 
@@ -95,12 +98,60 @@ class _Quiet:
     def error(self, m): pass
 
 
-def _ydl(opts):
+def _get_cookiefile() -> Path | None:
+    raw = config.env("PEAKCUT_YT_COOKIES", "").strip()
+    if raw and ("\t" in raw or "# Netscape" in raw or "cookies" in raw.lower()):
+        cfile = config.TMP_DIR / "yt_cookies.txt"
+        try:
+            cfile.write_text(raw, encoding="utf-8")
+            return cfile
+        except OSError:
+            pass
+    fpath = config.env("PEAKCUT_YT_COOKIES_FILE", "").strip()
+    if fpath and Path(fpath).is_file():
+        return Path(fpath)
+    for cand in (config.ROOT / "secrets" / "cookies.txt", config.DATA_DIR / "cookies.txt"):
+        if cand.is_file():
+            return cand
+    return None
+
+
+def _ydl(opts, client_override=None):
     import yt_dlp
-    # a channel or playlist link is answered as "a list" straight away, never walked video by video
-    return yt_dlp.YoutubeDL({"noplaylist": True, "quiet": True, "no_warnings": True, "logger": _Quiet(),
-                             "extract_flat": "in_playlist", "playlistend": 1, "socket_timeout": 20,
-                             "concurrent_fragment_downloads": 4, **opts})
+    player_clients = client_override or ["android", "ios", "mweb", "web"]
+    base = {
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "logger": _Quiet(),
+        "extract_flat": "in_playlist",
+        "playlistend": 1,
+        "socket_timeout": 30,
+        "concurrent_fragment_downloads": 4,
+        "retries": 10,
+        "fragment_retries": 10,
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Sec-Fetch-Mode": "navigate",
+        },
+        "extractor_args": {
+            "youtube": {
+                "player_client": player_clients,
+            }
+        },
+    }
+    proxy = config.env("PEAKCUT_YT_PROXY") or config.env("PEAKCUT_HTTP_PROXY") or config.env("HTTP_PROXY") or config.env("HTTPS_PROXY")
+    if proxy:
+        base["proxy"] = proxy.strip()
+
+    cookiefile = _get_cookiefile()
+    if cookiefile:
+        base["cookiefile"] = str(cookiefile)
+
+    base.update(opts)
+    return yt_dlp.YoutubeDL(base)
 
 
 def _video_format(height):
@@ -117,8 +168,19 @@ def _biggest(job_dir: Path, stem: str) -> Path:
 
 def info(url: str) -> dict:
     """Title, channel and length, without downloading anything."""
-    with _youtube_guard(url), _ydl({}) as ydl:
-        i = ydl.extract_info(url, download=False)
+    with _youtube_guard(url):
+        try:
+            with _ydl({}) as ydl:
+                i = ydl.extract_info(url, download=False)
+        except Exception as e:
+            if is_youtube(url):
+                try:
+                    with _ydl({}, client_override=["android", "mweb"]) as ydl:
+                        i = ydl.extract_info(url, download=False)
+                except Exception:
+                    raise e
+            else:
+                raise e
     return {"title": i.get("title") or "", "uploader": i.get("uploader") or i.get("channel") or "",
             "duration": float(i.get("duration") or 0), "is_live": bool(i.get("is_live")),
             "thumbnail": i.get("thumbnail") or "", "kind": i.get("_type") or "video"}
@@ -244,22 +306,48 @@ def save_thumb(job_dir: Path, url: str = "", video: Path = None) -> bool:
 
 def download_audio(url: str, job_dir: Path, on_progress=None) -> Path:
     """Audio only: a few seconds even for long videos, and all the AI needs to pick clips."""
+    job_dir.mkdir(parents=True, exist_ok=True)
     def hook(d):
         total = d.get("total_bytes") or d.get("total_bytes_estimate")
         if on_progress and d.get("status") == "downloading" and total:
             on_progress(d.get("downloaded_bytes", 0) / total)
 
-    with _youtube_guard(url), _ydl({"format": "ba[ext=m4a]/ba/worst", "outtmpl": str(job_dir / "audio_src.%(ext)s"),
-               "progress_hooks": [hook]}) as ydl:
-        ydl.download([url])
+    opts = {"format": "ba[ext=m4a]/ba/worst", "outtmpl": str(job_dir / "audio_src.%(ext)s"),
+            "progress_hooks": [hook]}
+    with _youtube_guard(url):
+        try:
+            with _ydl(opts) as ydl:
+                ydl.download([url])
+        except Exception as e:
+            if is_youtube(url):
+                try:
+                    with _ydl(opts, client_override=["android", "mweb"]) as ydl:
+                        ydl.download([url])
+                except Exception:
+                    raise e
+            else:
+                raise e
     return _biggest(job_dir, "audio_src")
 
 
 def download(url: str, job_dir: Path, height=720) -> Path:
     """The whole video. Used for shorter videos, where this is quicker than fetching pieces."""
-    with _youtube_guard(url), _ydl({"format": _video_format(height), "merge_output_format": "mp4",
-                                    "outtmpl": str(job_dir / "source.%(ext)s")}) as ydl:
-        ydl.download([url])
+    job_dir.mkdir(parents=True, exist_ok=True)
+    opts = {"format": _video_format(height), "merge_output_format": "mp4",
+            "outtmpl": str(job_dir / "source.%(ext)s")}
+    with _youtube_guard(url):
+        try:
+            with _ydl(opts) as ydl:
+                ydl.download([url])
+        except Exception as e:
+            if is_youtube(url):
+                try:
+                    with _ydl(opts, client_override=["android", "mweb"]) as ydl:
+                        ydl.download([url])
+                except Exception:
+                    raise e
+            else:
+                raise e
     return _biggest(job_dir, "source")
 
 
@@ -272,8 +360,19 @@ def download_section(url: str, out_dir: Path, stem: str, start: float, end: floa
             "download_ranges": download_range_func(None, [(max(0.0, start), end)])}
     if exact:
         opts["force_keyframes_at_cuts"] = True
-    with _youtube_guard(url), _ydl(opts) as ydl:
-        ydl.download([url])
+    with _youtube_guard(url):
+        try:
+            with _ydl(opts) as ydl:
+                ydl.download([url])
+        except Exception as e:
+            if is_youtube(url):
+                try:
+                    with _ydl(opts, client_override=["android", "mweb"]) as ydl:
+                        ydl.download([url])
+                except Exception:
+                    raise e
+            else:
+                raise e
     return _biggest(out_dir, stem)
 
 
@@ -308,14 +407,21 @@ def probe(path: Path) -> dict:
 
 
 def extract_audio(src: Path, wav: Path):
+    wav = Path(wav)
+    wav.parent.mkdir(parents=True, exist_ok=True)
     # first_pts=0 pads any gap before the audio starts, so second 0 of the wav is second 0 of the file
     # -t: never more audio than the longest video allowed, whatever the file claims about itself
     run(["ffmpeg", "-y", "-v", "error", "-i", str(src), "-vn", "-ac", "1", "-ar", "16000", "-t", str(int(config.MAX_VIDEO_HOURS * 3600) + 60),
          "-af", "aresample=async=1:first_pts=0", "-c:a", "pcm_s16le", str(wav)])
+    if not wav.is_file() or wav.stat().st_size == 0:
+        raise RuntimeError(f"Audio extraction produced an empty or missing WAV file from {Path(src).name}")
 
 
 def load_audio(wav: Path) -> np.ndarray:
-    data, sr = sf.read(str(wav), dtype="int16")
+    p = Path(wav)
+    if not p.is_file():
+        raise FileNotFoundError(f"Audio file not found: {p}")
+    data, sr = sf.read(str(p), dtype="int16")
     assert sr == 16000
     return data
 
