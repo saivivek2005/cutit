@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: peakcut
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: oregon
+    plan: starter
+    healthCheckPath: /healthz
+    disk:
+      name: peakcut-data
+      mountPath: /data
+      sizeGB: 10
+    envVars:
+      - key: PEAKCUT_DATA
+        value: /data
+      - key: PEAKCUT_HOST
+        value: 0.0.0.0
+      - key: PEAKCUT_TRUST_PROXY
+        value: "1"
+      # Set to "1" if deploying as a multi-user service with email/Google sign-in, or "0" for single-owner mode
+      - key: PEAKCUT_ACCOUNTS
+        value: "0"
+      - key: PEAKCUT_AI_PROVIDER
+        value: gemini
+      - key: PEAKCUT_AI_MODELS
+        value: gemini-2.5-flash
+      - key: PEAKCUT_AI_KEY
+        sync: false

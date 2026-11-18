@@ -127,7 +127,17 @@ YT_TRANSCRIPT = env("PEAKCUT_YT_TRANSCRIPT", "1") != "0"
 # the compact model for processors; a machine with a graphics card sets PEAKCUT_ASR_MODEL to the full-precision one
 ASR_MODEL_NAME = env("PEAKCUT_ASR_MODEL", "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8")
 ASR_MODEL_DIR = MODELS_DIR / ASR_MODEL_NAME
-DATABASE_URL = env("DATABASE_URL") or f"sqlite:///{(DATA_DIR / 'peakcut.db').as_posix()}"
+def _normalize_db_url(url: str) -> str:
+    if not url:
+        return f"sqlite:///{(DATA_DIR / 'peakcut.db').as_posix()}"
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url[len("postgres://"):]
+    if url.startswith("postgresql://") and not url.startswith("postgresql+"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
+DATABASE_URL = _normalize_db_url(env("DATABASE_URL", ""))
 # Commercials and "be right back" screens are stitched into streams. A clip taken from one is worthless, so those
 # seconds can be found and left out. It is off by default: it reads the whole video once, which is not free, and
 # a video that is meant to be still must not lose its clips. PEAKCUT_SKIP_STATIC=1 turns it on.
@@ -150,9 +160,10 @@ def user_dir(uid: str) -> Path:
 
 
 # ---------------------------------------------------------------- the site
-HOST = env("PEAKCUT_HOST", "127.0.0.1")
-PORT = int(env("PEAKCUT_PORT") or "8765")
-PUBLIC_URL = (env("PEAKCUT_PUBLIC_URL") or f"http://127.0.0.1:{PORT}").rstrip("/")   # e.g. https://peakcut.com
+PORT = int(env("PORT") or env("PEAKCUT_PORT") or "8765")
+HOST = env("PEAKCUT_HOST") or ("0.0.0.0" if env("PORT") else "127.0.0.1")
+_detected_url = env("PEAKCUT_PUBLIC_URL") or env("RENDER_EXTERNAL_URL") or (f"https://{env('RAILWAY_PUBLIC_DOMAIN')}" if env("RAILWAY_PUBLIC_DOMAIN") else None)
+PUBLIC_URL = (_detected_url or f"http://127.0.0.1:{PORT}").rstrip("/")   # e.g. https://peakcut.com
 HTTPS = PUBLIC_URL.startswith("https://")
 SESSION_DAYS = int(env("PEAKCUT_SESSION_DAYS", "30"))
 # Accounts are off by default: PeakCut opens straight into the dashboard, with no sign-in, which is what you want

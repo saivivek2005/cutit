@@ -1,0 +1,20 @@
+{
+  "name": "peakcut",
+  "version": "1.0.0",
+  "description": "Turn long videos and live streams into captioned vertical clips",
+  "main": "studio/server.py",
+  "scripts": {
+    "start": "python -m studio.server",
+    "test": "python tests/run.py",
+    "fetch-model": "python -m studio.fetch_model"
+  },
+  "keywords": [
+    "video-editing",
+    "clips",
+    "ai",
+    "ffmpeg",
+    "transcription"
+  ],
+  "author": "PeakCut",
+  "license": "MIT"
+}

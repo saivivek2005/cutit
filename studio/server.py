@@ -287,6 +287,10 @@ def _own_address(host: str) -> bool:
     name = name[1:name.index("]")] if name.startswith("[") and "]" in name else name.rsplit(":", 1)[0] if ":" in name else name
     if name in ("localhost", urlparse(config.PUBLIC_URL).hostname or "") or name.endswith(".localhost"):
         return True
+    if config.env("RENDER_EXTERNAL_HOSTNAME") and name == config.env("RENDER_EXTERNAL_HOSTNAME").lower():
+        return True
+    if config.env("RAILWAY_PUBLIC_DOMAIN") and name == config.env("RAILWAY_PUBLIC_DOMAIN").lower():
+        return True
     try:
         ipaddress.ip_address(name)
         return True
